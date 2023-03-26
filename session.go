@@ -149,3 +149,21 @@ func (s *session) start(localMasterKey, localMasterSalt, remoteMasterKey, remote
 
 	return nil
 }
+
+func (s *session) State() map[uint32]uint32 {
+	s.localContextMutex.Lock()
+	defer s.localContextMutex.Unlock()
+
+	out := map[uint32]uint32{}
+	for i := range s.localContext.srtcpSSRCStates {
+		out[s.localContext.srtcpSSRCStates[i].ssrc] = s.localContext.srtcpSSRCStates[i].srtcpIndex
+	}
+
+	return out
+}
+
+func (s *session) Resume(state map[uint32]uint32) {
+	for ssrc, rtcpIndex := range state {
+		s.localContext.SetIndex(ssrc, rtcpIndex)
+	}
+}
