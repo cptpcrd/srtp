@@ -84,7 +84,7 @@ func (r *ReadStreamSRTP) write(buf []byte) (n int, err error) {
 func (r *ReadStreamSRTP) Peek(buf []byte) (int, error) {
 	r.peekedPacketMu.Lock()
 	defer r.peekedPacketMu.Unlock()
-	if pkt, ok := r.peekedPacket.Swap((*[]byte)(nil)).(*[]byte); ok && pkt != nil {
+	if pkt, ok := r.peekedPacket.Load().(*[]byte); ok && pkt != nil {
 		return copy(buf, *pkt), nil
 	}
 	n, err := r.buffer.Read(buf)
