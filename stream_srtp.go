@@ -29,8 +29,9 @@ type ReadStreamSRTP struct {
 
 	buffer io.ReadWriteCloser
 
-	peekedPacket atomic.Value
-	peekedPacketMu sync.Mutex
+	peekedPacket        []byte
+	peekedPacketMu      sync.Mutex
+	peekedPacketPresent atomic.Bool
 }
 
 // Used by getOrCreateReadStream
@@ -84,22 +85,36 @@ func (r *ReadStreamSRTP) write(buf []byte) (n int, err error) {
 func (r *ReadStreamSRTP) Peek(buf []byte) (int, error) {
 	r.peekedPacketMu.Lock()
 	defer r.peekedPacketMu.Unlock()
-	if pkt, ok := r.peekedPacket.Load().(*[]byte); ok && pkt != nil {
-		return copy(buf, *pkt), nil
+	if r.peekedPacketPresent.Load() {
+		return copy(buf, r.peekedPacket), nil
 	}
 	n, err := r.buffer.Read(buf)
-	if err == nil {
-		peekedPacket := make([]byte, n)
-		copy(peekedPacket, buf)
-		r.peekedPacket.Store(&peekedPacket)
+	if err != nil {
+		return n, err
 	}
-	return n, err
+	if cap(r.peekedPacket) < n {
+		size := 1500
+		if size < n {
+			size = n
+		}
+		r.peekedPacket = make([]byte, size)
+	}
+	r.peekedPacket = r.peekedPacket[:n]
+	copy(r.peekedPacket, buf)
+	r.peekedPacketPresent.Store(true)
+	return n, nil
 }
 
 // Read reads and decrypts full RTP packet from the nextConn
 func (r *ReadStreamSRTP) Read(buf []byte) (int, error) {
-	if pkt, ok := r.peekedPacket.Swap((*[]byte)(nil)).(*[]byte); ok && pkt != nil {
-		return copy(buf, *pkt), nil
+	if r.peekedPacketPresent.Load() {
+		r.peekedPacketMu.Lock()
+		if r.peekedPacketPresent.Swap(false) {
+			n := copy(buf, r.peekedPacket)
+			r.peekedPacketMu.Unlock()
+			return n, nil
+		}
+		r.peekedPacketMu.Unlock()
 	}
 	return r.buffer.Read(buf)
 }
